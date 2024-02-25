@@ -1,0 +1,5 @@
+info gathering - web tech stack , available directories, subdomain, public information, history websites
+vul detection - xss
+api
+credentials
+sub process py lib
