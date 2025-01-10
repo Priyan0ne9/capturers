@@ -6,6 +6,31 @@ import dns.resolver
 import socket
 import ssl
 import re
+from fpdf import FPDF
+import time
+from social_media_footprint import check_social_media_footprint
+import json
+import tempfile
+import shutil
+
+# Add the new function for calculating CVSS score
+def calculate_cvss_score(vulnerability_type):
+    cvss_scores = {
+        "XSS": {
+            "Base Score": 6.1,
+            "Severity": "Medium"
+        },
+        "CSRF": {
+            "Base Score": 4.3,
+            "Severity": "Medium"
+        },
+        "SQL Injection": {
+            "Base Score": 7.5,
+            "Severity": "High"
+        }
+    }
+    
+    return cvss_scores.get(vulnerability_type, {"Base Score": 0, "Severity": "None"})
 
 def main():
     st.sidebar.image("./logo.jpg", width=200)
@@ -27,9 +52,8 @@ def main():
             ## Features
 
             - **Website Scanning:** Scan a target URL to gather information about common directories, subdomains, server headers, technologies used, SSL certificate details, and potential vulnerabilities.
-
             - **Security Checks:** Detect potential security vulnerabilities, including XSS (Cross-Site Scripting) and CSRF (Cross-Site Request Forgery), as well as perform SQL injection vulnerability scans.
-
+            - **Performance Metrics:** Assess the performance of the target website, including response time, number of requests, and server status code.
             - **Downloadable Reports:** Generate detailed PDF reports summarizing the scan results for further analysis or documentation.
 
             ## How to Use
@@ -37,7 +61,7 @@ def main():
             1. Navigate to the "Scan Website" page from the sidebar.
             2. Enter the target URL in the provided input field.
             3. Click the "Scan Website" button to initiate the scan.
-            4. Review the scan results and explore potential vulnerabilities.
+            4. Review the scan results and explore potential vulnerabilities and performance metrics.
             5. Download a PDF report for comprehensive documentation.
 
             Explore the various features and enhance your web analysis capabilities with the Web Scanning Tool!
@@ -47,14 +71,14 @@ def main():
     elif page == "Scan Website":
         url = st.text_input("Enter the target URL:")
         scan_button = st.button("Scan Website")
-        st.sidebar.header("Options")
 
-    if scan_button is not None:
-        if not is_valid_url(url):
-            return
-        else:
-            results = perform_scan(url)
-            display_results(results)
+        if scan_button:  # This ensures the button is clicked
+            if not is_valid_url(url):  # Validate URL here
+                st.error("Invalid URL! Please enter a valid URL.")
+            else:
+                results, performance_metrics = perform_scan(url)  # Perform the scan and get performance metrics
+                display_results(results, performance_metrics)  # Display the results
+
 
 def is_valid_url(url):
     try:
@@ -63,9 +87,14 @@ def is_valid_url(url):
     except requests.RequestException:
         return False
 
+
 def perform_scan(url):
     results = {}
+    performance_metrics = {}
 
+    # Performance metrics: response time, number of requests, server status code
+    start_time = time.time()
+    
     common_directories = [
         "/",
         "/admin",
@@ -96,15 +125,38 @@ def perform_scan(url):
     # Adding XSS and CSRF checks
     xss_result = check_xss_vulnerability(url)
     results["XSS Vulnerability"] = xss_result
+    results["XSS CVSS Score"] = calculate_cvss_score("XSS")
 
     csrf_result = check_csrf_vulnerability(url)
     results["CSRF Vulnerability"] = csrf_result
+    results["CSRF CVSS Score"] = calculate_cvss_score("CSRF")
 
     # Adding SQL injection check
     sql_result = sql_injection_scan(url)
     results["SQL Injection Vulnerability"] = sql_result
+    results["SQL Injection CVSS Score"] = calculate_cvss_score("SQL Injection")
 
-    return results
+    # Adding Social Media Footprint check
+    social_media_result = check_social_media_footprint(url)
+    results["Social Media Footprint"] = social_media_result
+
+    # Performance Metrics
+    end_time = time.time()
+    response_time = end_time - start_time
+    performance_metrics["Response Time"] = f"{response_time:.2f} seconds"
+    performance_metrics["Total Requests"] = len(common_directories)
+    performance_metrics["Status Code"] = get_server_status_code(url)
+
+    return results, performance_metrics
+
+
+def get_server_status_code(url):
+    try:
+        response = requests.head(url)
+        return response.status_code
+    except requests.RequestException:
+        return "Error"
+
 
 def check_xss_vulnerability(url):
     try:
@@ -116,6 +168,7 @@ def check_xss_vulnerability(url):
     except requests.RequestException:
         return "Error checking XSS vulnerability"
 
+
 def check_csrf_vulnerability(url):
     try:
         response = requests.get(url)
@@ -126,6 +179,7 @@ def check_csrf_vulnerability(url):
             return "No CSRF Vulnerability"
     except requests.RequestException:
         return "Error checking CSRF vulnerability"
+
 
 def sql_injection_scan(url):
     s = requests.Session()
@@ -160,6 +214,7 @@ def sql_injection_scan(url):
 
     return result
 
+
 def vulnerable(response):
     errors = {"quoted string not properly terminated",
               "unclosed quotation mark after the character string",
@@ -170,9 +225,11 @@ def vulnerable(response):
             return True
     return False
 
+
 def get_forms(url):
     soup = BeautifulSoup(requests.get(url).content, "html.parser")
     return soup.find_all("form")
+
 
 def form_details(form):
     details_of_form = {}
@@ -195,12 +252,14 @@ def form_details(form):
     details_of_form['inputs'] = inputs
     return details_of_form
 
+
 def check_directory(url, directory):
     try:
         response = requests.get(url + directory)
         return response
     except requests.ConnectionError:
         return None
+
 
 def get_subdomains(domain):
     try:
@@ -210,6 +269,7 @@ def get_subdomains(domain):
     except dns.resolver.NXDOMAIN:
         return []
 
+
 def get_server_headers(url):
     try:
         response = requests.head(url)
@@ -217,12 +277,14 @@ def get_server_headers(url):
     except requests.ConnectionError:
         return None
 
+
 def get_technologies(url):
     try:
         info = builtwith.builtwith(url)
         return info
     except builtwith.BuiltWithError:
         return None
+
 
 def get_ssl_certificate(url):
     try:
@@ -235,7 +297,7 @@ def get_ssl_certificate(url):
     except (socket.error, ssl.SSLError):
         return None
 
-def display_results(results):
+def display_results(results, performance_metrics):
     for category, data in results.items():
         st.subheader(f"{category}:")
         if isinstance(data, dict):
@@ -247,6 +309,41 @@ def display_results(results):
         else:
             st.text(f"  - {data}")
         st.text("")  # Empty line for spacing
+    
+    # Display performance metrics
+    st.subheader("Performance Metrics:")
+    for key, value in performance_metrics.items():
+        st.text(f"  - {key}: {value}")
+
+
+def generate_pdf_report(results, performance_metrics):
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+
+    pdf.cell(200, 10, txt="Web Scan Report", ln=True, align="C")
+
+    for category, data in results.items():
+        pdf.ln(10)
+        pdf.cell(200, 10, txt=f"{category}:", ln=True)
+        if isinstance(data, dict):
+            for key, value in data.items():
+                pdf.cell(200, 10, txt=f"  - {key}: {value}", ln=True)
+        elif isinstance(data, list):
+            for item in data:
+                pdf.cell(200, 10, txt=f"  - {item}", ln=True)
+        else:
+            pdf.cell(200, 10, txt=f"  - {data}", ln=True)
+
+    # Add performance metrics to the report
+    pdf.ln(10)
+    pdf.cell(200, 10, txt="Performance Metrics:", ln=True)
+    for key, value in performance_metrics.items():
+        pdf.cell(200, 10, txt=f"  - {key}: {value}", ln=True)
+
+    pdf.output("web_scan_report.pdf")
+    st.download_button("Download PDF Report", data=open("web_scan_report.pdf", "rb").read(), file_name="web_scan_report.pdf", mime="application/pdf")
 
 if __name__ == "__main__":
     main()
