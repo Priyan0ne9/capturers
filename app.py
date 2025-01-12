@@ -13,25 +13,6 @@ import json
 import tempfile
 import shutil
 
-# Add the new function for calculating CVSS score
-def calculate_cvss_score(vulnerability_type):
-    cvss_scores = {
-        "XSS": {
-            "Base Score": 6.1,
-            "Severity": "Medium"
-        },
-        "CSRF": {
-            "Base Score": 4.3,
-            "Severity": "Medium"
-        },
-        "SQL Injection": {
-            "Base Score": 7.5,
-            "Severity": "High"
-        }
-    }
-    
-    return cvss_scores.get(vulnerability_type, {"Base Score": 0, "Severity": "None"})
-
 def main():
     st.sidebar.image("./logo.jpg", width=200)
     st.sidebar.header("Options")
@@ -78,6 +59,7 @@ def main():
             else:
                 results, performance_metrics = perform_scan(url)  # Perform the scan and get performance metrics
                 display_results(results, performance_metrics)  # Display the results
+                generate_pdf_report(results, performance_metrics)  # Generate PDF report
 
 
 def is_valid_url(url):
@@ -125,16 +107,13 @@ def perform_scan(url):
     # Adding XSS and CSRF checks
     xss_result = check_xss_vulnerability(url)
     results["XSS Vulnerability"] = xss_result
-    results["XSS CVSS Score"] = calculate_cvss_score("XSS")
 
     csrf_result = check_csrf_vulnerability(url)
     results["CSRF Vulnerability"] = csrf_result
-    results["CSRF CVSS Score"] = calculate_cvss_score("CSRF")
 
     # Adding SQL injection check
     sql_result = sql_injection_scan(url)
     results["SQL Injection Vulnerability"] = sql_result
-    results["SQL Injection CVSS Score"] = calculate_cvss_score("SQL Injection")
 
     # Adding Social Media Footprint check
     social_media_result = check_social_media_footprint(url)
@@ -297,53 +276,102 @@ def get_ssl_certificate(url):
     except (socket.error, ssl.SSLError):
         return None
 
+
 def display_results(results, performance_metrics):
     for category, data in results.items():
-        st.subheader(f"{category}:")
+        st.subheader(category)
         if isinstance(data, dict):
             for key, value in data.items():
-                st.text(f"  - {key}: {value}")
-        elif isinstance(data, list):
-            for item in data:
-                st.text(f"  - {item}")
+                st.write(f"**{key}:** {value}")
         else:
-            st.text(f"  - {data}")
-        st.text("")  # Empty line for spacing
-    
-    # Display performance metrics
-    st.subheader("Performance Metrics:")
-    for key, value in performance_metrics.items():
-        st.text(f"  - {key}: {value}")
+            st.write(data)
 
+    st.subheader("Performance Metrics")
+    for metric, value in performance_metrics.items():
+        st.write(f"**{metric}:** {value}")
+
+
+import os
 
 def generate_pdf_report(results, performance_metrics):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    pdf.cell(200, 10, txt="Web Scan Report", ln=True, align="C")
-
-    for category, data in results.items():
-        pdf.ln(10)
-        pdf.cell(200, 10, txt=f"{category}:", ln=True)
-        if isinstance(data, dict):
-            for key, value in data.items():
-                pdf.cell(200, 10, txt=f"  - {key}: {value}", ln=True)
-        elif isinstance(data, list):
-            for item in data:
-                pdf.cell(200, 10, txt=f"  - {item}", ln=True)
-        else:
-            pdf.cell(200, 10, txt=f"  - {data}", ln=True)
-
-    # Add performance metrics to the report
+    
+    # Title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="Website Scan Report", ln=True, align="C")
     pdf.ln(10)
-    pdf.cell(200, 10, txt="Performance Metrics:", ln=True)
-    for key, value in performance_metrics.items():
-        pdf.cell(200, 10, txt=f"  - {key}: {value}", ln=True)
 
-    pdf.output("web_scan_report.pdf")
-    st.download_button("Download PDF Report", data=open("web_scan_report.pdf", "rb").read(), file_name="web_scan_report.pdf", mime="application/pdf")
+    # Directories
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Directories:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for directory, status in results["Directories"].items():
+        pdf.cell(200, 10, txt=f"{directory}: {status}", ln=True)
+
+    # Subdomains
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Subdomains:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for subdomain in results["Subdomains"]:
+        pdf.cell(200, 10, txt=f"{subdomain}", ln=True)
+
+    # Server Headers
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Server Headers:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for key, value in results["Server Headers"].items():
+        pdf.cell(200, 10, txt=f"{key}: {value}", ln=True)
+
+    # Web Technologies
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Web Technologies:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for tech, tech_list in results["Web Technologies"].items():
+        pdf.cell(200, 10, txt=f"{tech}: {', '.join(tech_list)}", ln=True)
+
+    # SSL Certificate Information
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="SSL Certificate Information:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for cert_key, cert_value in results["SSL Certificate Information"].items():
+        pdf.cell(200, 10, txt=f"{cert_key}: {cert_value}", ln=True)
+
+    # Performance Metrics
+    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, txt="Performance Metrics:", ln=True)
+    pdf.set_font("Arial", '', 12)
+    for metric, value in performance_metrics.items():
+        pdf.cell(200, 10, txt=f"{metric}: {value}", ln=True)
+
+    # Save PDF to temporary file
+    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    tmp_pdf_path = tmp_pdf.name
+    pdf.output(tmp_pdf_path)
+
+    # Close the file
+    tmp_pdf.close()
+
+    # Streamlit download button
+    st.download_button(
+        label="Download PDF Report",
+        data=open(tmp_pdf_path, "rb").read(),
+        file_name="website_scan_report.pdf",
+        mime="application/pdf"
+    )
+
+    # Clean up the temporary file after download
+    try:
+        os.remove(tmp_pdf_path)
+    except PermissionError:
+        st.write("Error: Could not delete temporary file. Please try again later.")
+
 
 if __name__ == "__main__":
     main()
